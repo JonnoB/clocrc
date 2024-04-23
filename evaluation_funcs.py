@@ -175,7 +175,7 @@ def get_metric_error_reduction(corrected_df, raw_df):
     return relative_errors_df
 
 
-def evaluate_correction_performance(folder, transcripts_dir, wer_func, cer_func, type):
+def evaluate_correction_performance(folder, transcripts_dir, wer_func, cer_func, type, remove_line_breaks = True):
     """
     Evaluate the performance of the OCR relative to the transcript ground truth.
 
@@ -191,6 +191,9 @@ def evaluate_correction_performance(folder, transcripts_dir, wer_func, cer_func,
 
     """
     dev_data_raw_df = load_txt_files_to_df(folder)
+
+    if remove_line_breaks:
+        dev_data_raw_df['content_html'] = dev_data_raw_df['content_html'].str.replace("\n", " ")
     
     # filter to only have the ones with a transcript
     dev_data_raw_df = dev_data_raw_df.loc[dev_data_raw_df['file_name'].isin(os.listdir(transcripts_dir))].reset_index(drop=True)
@@ -200,7 +203,7 @@ def evaluate_correction_performance(folder, transcripts_dir, wer_func, cer_func,
     
     return eval_temp
 
-def evaluate_correction_performance_folders(corrected_folder, transcript_folder, wer_func, cer_func):
+def evaluate_correction_performance_folders(corrected_folder, transcript_folder, wer_func, cer_func, remove_line_breaks = True):
     """
     Calls `evaluate_correction_performance` on a folder of folders, allows the comparison of multiple models or prompts
     Evaluate the performance of LLM post-OCR recovery using WER, CER, and levenstiend distance
@@ -221,7 +224,7 @@ def evaluate_correction_performance_folders(corrected_folder, transcript_folder,
     performance_eval = []
     for folder in os.listdir(corrected_folder):
         
-        eval_temp = evaluate_correction_performance(os.path.join(corrected_folder, folder),transcript_folder , wer_func, cer_func, folder)
+        eval_temp = evaluate_correction_performance(os.path.join(corrected_folder, folder),transcript_folder , wer_func, cer_func, folder, remove_line_breaks)
 
         performance_eval.append(eval_temp)
 
