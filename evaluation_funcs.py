@@ -2,6 +2,10 @@ import jellyfish
 import numpy as np
 import pandas as pd
 import os
+from nervaluate import Evaluator
+from collections import Counter
+from sklearn.metrics.pairwise import cosine_similarity
+from helper_functions import load_json_to_dataframe
 
 def vectorized_levenshtein_similarity(leven_distances, lengths):
     """
@@ -230,3 +234,174 @@ def evaluate_correction_performance_folders(corrected_folder, transcript_folder,
 
     performance_eval = pd.concat(performance_eval)
     return performance_eval
+
+
+def calculate_entity_similarity(predicted_entities, ground_truth_entities):
+
+    """
+    Calculate the cosine similarity between the frequency vectors of entities extracted from predicted and ground truth data.
+
+    This function first extracts the 'word' element from each entity in the predicted and ground truth entity lists. It then counts the occurrences of each unique word in both lists and constructs vectors from these counts. The cosine similarity between these two vectors is computed to measure how similar the entities are in terms of their content, regardless of their order or exact match.
+
+    Args:
+        predicted_entities (list of dict): A list of dictionaries where each dictionary represents an entity with at least the key 'word'.
+        ground_truth_entities (list of dict): A list of dictionaries similar to `predicted_entities`, representing the ground truth for comparison.
+
+    Returns:
+        float: The cosine similarity between the frequency vectors of the predicted and ground truth entities.
+
+    Example:
+        predicted_entities = [
+            {'entity': 'B-ORG', 'score': 0.6054342, 'index': 31, 'word': 'Revenge', 'start': 123, 'end': 130},
+            {'entity': 'B-MISC', 'score': 0.50727797, 'index': 85, 'word': 'San', 'start': 362, 'end': 365}
+        ]
+        ground_truth_entities = [
+            {'entity': 'B-ORG', 'score': 1.0, 'index': 31, 'word': 'Revenge', 'start': 123, 'end': 130},
+            {'entity': 'B-MISC', 'score': 1.0, 'index': 85, 'word': 'Francisco', 'start': 362, 'end': 371}
+        ]
+        similarity = calculate_entity_similarity(predicted_entities, ground_truth_entities)
+        print(f"Entity similarity: {similarity:.2f}")
+    """
+    # Extract words from predicted and ground truth entities
+    predicted_words = [entity['word'] for entity in predicted_entities]
+    ground_truth_words = [entity['word'] for entity in ground_truth_entities]
+    
+    # Count occurrences of words in predicted and ground truth entities
+    predicted_counts = Counter(predicted_words)
+    ground_truth_counts = Counter(ground_truth_words)
+    
+    # Create a list of all unique words present in either predicted or ground truth entities
+    all_words = list(set(predicted_words + ground_truth_words))
+    
+    # Create vectors based on the counts of words
+    predicted_vector = np.array([predicted_counts[word] for word in all_words])
+    ground_truth_vector = np.array([ground_truth_counts[word] for word in all_words])
+    
+    # Compute cosine similarity between the vectors
+    similarity = cosine_similarity([predicted_vector], [ground_truth_vector])[0][0]
+    
+    return similarity
+
+
+
+def evaluate_ner_dict(ground_truth, predicted):
+    """
+    Evaluate the Named Entity Recognition (NER) predictions against the ground truth labels
+    for a single pair of ground truth and predicted dictionaries.
+
+    Parameters:
+    - ground_truth (list): A list of dictionaries representing the ground truth annotations.
+    - predicted (list): A list of dictionaries representing the predicted annotations.
+
+    Returns:
+    - float: The F1 score for the given pair of dictionaries.
+    """
+    ground_truth_labels = []
+    predicted_labels = []
+    if ground_truth:
+        ground_truth_labels.append([{
+            'label': entity['entity'],
+            'start': entity['start'],
+            'end': entity['end']
+        } for entity in ground_truth])
+    else:
+        ground_truth_labels.append([])
+
+    if predicted:
+        predicted_labels.append([{
+            'label': entity['entity'],
+            'start': entity['start'],
+            'end': entity['end']
+        } for entity in predicted])
+    else:
+        predicted_labels.append([])
+
+    tags = ['B-LOC', 'I-LOC', 'B-MISC', 'I-MISC', 'B-ORG', 'I-ORG', 'B-PER', 'I-PER']
+    evaluator = Evaluator(ground_truth_labels, predicted_labels, tags=tags)
+
+    # Calculate evaluation metrics for the dictionaries
+    results, _ = evaluator.evaluate()
+    return results['ent_type']['f1']
+
+
+def evaluate_ner_dataframes(recovered_NER, gt_NER):
+    """
+    Evaluate the Named Entity Recognition (NER) performance by comparing recovered NER data with ground truth NER data.
+
+    This function merges the ground truth and recovered NER data, calculates the similarity and F1 scores for each entity, and returns a summary DataFrame.
+
+    Parameters:
+    - recovered_NER (DataFrame): A pandas DataFrame containing the recovered NER data, indexed or containing a 'file_name' column to match with ground truth.
+    - gt_NER (DataFrame): A pandas DataFrame containing the ground truth NER data, similarly indexed or structured.
+
+    Returns:
+    - DataFrame: A pandas DataFrame containing the original 'file_name', with calculated 'CoNES' (coefficient of NER similarity) and 'F1_score' for each file, excluding original NER columns to streamline the output.
+
+    Notes:
+    - Ensure that both DataFrames include a 'file_name' column for proper merging.
+    - The function internally copies the DataFrames to avoid modifying the original data.
+    """
+    gt_NER = gt_NER.copy()
+
+    recovered_NER = recovered_NER.copy()
+
+    temp_ner = gt_NER.merge(recovered_NER, on='file_name', suffixes=['_gt', '_recovered'])
+
+    temp_ner['CoNES'] = temp_ner.apply(lambda row: calculate_entity_similarity(row['NER_recovered'], row['NER_gt']), axis=1)
+
+    temp_ner['F1_score'] = temp_ner.apply(lambda row: evaluate_ner_dict(row['NER_gt'], row['NER_recovered']), axis=1)
+
+    temp_ner = temp_ner.drop(columns=['NER_gt', 'NER_recovered'])
+    
+    return temp_ner
+
+
+def evaluate_ner_dataset(folder_path, gt_NER):
+    """
+    Evaluates Named Entity Recognition (NER) performance by comparing ground truth data with predictions found in a structured directory.
+    
+    This function assumes a specific directory structure where each subfolder in the given folder path contains prediction files.
+    It calculates the F1 score and a custom similarity metric (CoNES score) for each document's NER predictions against the ground truth.
+    The results are compiled into a single pandas DataFrame that includes the evaluation metrics for each document across all subfolders.
+
+    Parameters:
+    - folder_path (str): The path to the main folder containing subfolders with JSON prediction files.
+    - gt_NER (pandas.DataFrame): A DataFrame containing the ground truth data with a 'file_name' column for merging.
+
+    Returns:
+    - pandas.DataFrame: A DataFrame with the evaluation results (F1 score and CoNES score) for each document, 
+      along with a 'type' column indicating the subfolder from which the predictions were loaded.
+
+    Raises:
+    - FileNotFoundError: If the specified folder path does not exist.
+    - ValueError: If there are discrepancies in the expected structure or content of the data files.
+
+    Example:
+    --------
+    # Assuming 'ground_truth_data' is a DataFrame containing the ground truth NER tags
+    # with a 'file_name' column that corresponds to filenames stored in the prediction folders.
+    folder_path = 'path/to/NER_predictions'
+    results_df = evaluate_ner_dataset(folder_path, ground_truth_data)
+    print(results_df.head())
+    """
+    output = []
+
+    dataset_folder = folder_path
+
+    for folder in os.listdir(dataset_folder):
+
+        target_folder = os.path.join(dataset_folder, folder)
+
+        recovered_NER = load_json_to_dataframe(target_folder)
+
+        temp_ner = evaluate_ner_dataframes(recovered_NER, gt_NER)
+
+        temp_ner['type'] = folder
+
+        output.append(temp_ner)
+
+    return pd.concat(output, ignore_index=True)
+
+
+
+

@@ -213,8 +213,7 @@ def use_df_to_call_llm_api(config_dict, df, response_name , folder_path='./data'
     Parameters:
     - config_dict (dict): A dictionary containing all the information required to all the api of an LLM and provide a system message and prompt.
         This dictionary is likely created by the 'create_config_dict_func' function.
-    - df (pandas.DataFrame): DataFrame containing OCR data to be processed. Required columns are 'title', 
-      'issue_date', 'content_html', 'id', and others relevant for file naming.
+    - df (pandas.DataFrame): DataFrame containing OCR data to be processed. Required columns are 'id'.
     - response_name (str): Descriptive name for the response, joined with the engine to create response folder.
     - engine (str, optional): The processing engine used for text recovery. Defaults to "gpt-3.5-turbo".
     - folder_path (str, optional): Project base data folder for recovered text, Defaults to './data'

@@ -4,11 +4,10 @@
 import os 
 import PyPDF2
 import pandas as pd
-from nervaluate import Evaluator
-from collections import Counter
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-
+import csv
+import json
+import re
 
 
 
@@ -312,117 +311,110 @@ def files_to_df_func(folder_path):
 
     return df
 
-def evaluate_ner(df, truth, predictions):
-    """
-    Evaluate the Named Entity Recognition (NER) predictions against the ground truth labels
-    contained in a dataframe. This function computes the performance metrics for NER tasks,
-    such as precision, recall, and F1-score, across multiple entity types.
+def preprocess_text(text):
+    # Example preprocessing: substitute multiple whitespaces with a single space
+    text = re.sub(r'\s+', ' ', text)
+    return text
 
+
+def perform_ner_on_text(text, ner_pipeline):
+    # Preprocess the text first
+    preprocessed_text = preprocess_text(text)
+    # Then pass the preprocessed text to the NER pipeline
+    return ner_pipeline(preprocessed_text)
+
+def default_serializer(obj):
+    """ Handles non-serializable objects. """
+    if isinstance(obj, np.float32):
+        return float(obj)
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+
+def perform_ner_on_folder(target_folder, save_folder, ner_pipeline):
+    # Ensure the save folder exists
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
+
+    # Prepare the path for the log file
+    log_file_path = os.path.join(save_folder, 'processing_log.csv')
+    
+    # Open CSV file in append mode to write logs continuously
+    with open(log_file_path, 'a', newline='') as log_file:
+        log_writer = csv.DictWriter(log_file, fieldnames=['File Name', 'Status'])
+        log_writer.writeheader()  # Write CSV header
+
+        # List all files in the target folder
+        target_files = os.listdir(target_folder)
+
+        for file_name in target_files:
+            if file_name.endswith(".txt"):
+                # Prepare paths and default log entry
+                save_file = os.path.join(save_folder, file_name.replace('.txt', '.json'))
+                log_entry = {'File Name': file_name, 'Status': 'Processed'}
+                
+                if not os.path.exists(save_file):
+                    file_path = os.path.join(target_folder, file_name)
+                    try:
+                        # Read the content of the file
+                        with open(file_path, "r") as file:
+                            content = file.read()
+                        # Perform NER and serialize results
+                        NER_dict = perform_ner_on_text(content, ner_pipeline)
+                        with open(save_file, 'w') as file:
+                            json.dump(NER_dict, file, default=default_serializer)
+                    except Exception as e:
+                        # Update log entry with error message
+                        log_entry['Status'] = f"Error: {str(e)}"
+                else:
+                    # Update log entry if the file already exists
+                    log_entry['Status'] = 'Skipped (Already exists)'
+
+                # Write log entry to CSV file
+                log_writer.writerow(log_entry)
+
+
+def perform_ner_on_results(text_folder, downstream_folder, ner_pipeline):
+    """ 
+    Cycles through a folder of folders and performs NER on the text files within, saving results using the same folder structure
+    and logging the outcomes to a CSV file immediately after each file is processed.
+    """
+    # Loop through each sub-folder in the main text folder
+    for folder in os.listdir(text_folder):
+        target_folder = os.path.join(text_folder, folder)  # Define the target folder path
+        save_folder = os.path.join(downstream_folder, folder)  # Define where to save the results
+
+        # Process text files in the target folder and save them in the save folder
+        perform_ner_on_folder(target_folder, save_folder,ner_pipeline)
+
+
+def load_json_to_dataframe(folder_path):
+    """
+    Load all JSON files from a specified folder into a pandas DataFrame.
+    The DataFrame will have two columns: 'file_name' and 'NER'.
+    
     Parameters:
-    - df (pandas.DataFrame): The dataframe containing the NER data. Must include columns
-                             specified by the `truth` and `predictions` parameters.
-    - truth (str): The column name in `df` that contains the ground truth annotations. Each
-                   entry in this column should be a list of dictionaries, where each dictionary
-                   represents an entity with keys 'entity', 'start', and 'end'.
-    - predictions (str): The column name in `df` that contains the predicted annotations. Each
-                         entry must follow the same format as the `truth` column.
-
+        folder_path (str): The path to the folder containing JSON files.
+    
     Returns:
-    - tuple: A tuple containing two elements:
-        1. results (dict): A dictionary with overall metrics such as overall precision, recall, and F1-score.
-        2. results_by_tag (dict): A dictionary with metrics broken down by entity type.
-
-    Raises:
-    - KeyError: If the `truth` or `predictions` columns are not present in the dataframe.
-    - ValueError: If any of the entries in `truth` or `predictions` columns are not in the expected list of
-                  dictionaries format with keys 'entity', 'start', and 'end'.
-
-    Example:
-    - Given a DataFrame `df` with columns "True Entities" and "Predicted Entities" where each
-      entry is a list of dictionaries representing entities:
-        >>> results, detailed_results = evaluate_ner(df, "True Entities", "Predicted Entities")
-        >>> print(results)
-        >>> print(detailed_results)
+        pd.DataFrame: A DataFrame containing the names of the files and their corresponding JSON data.
     """
+    # Initialize a list to store the data
+    data = []
     
-    ground_truth = df[truth].tolist()
-    predicted = df[predictions].tolist()
-
-    ground_truth_labels = []
-    predicted_labels = []
-    for sent_ground_truth, sent_predicted in zip(ground_truth, predicted):
-        if sent_ground_truth:
-            ground_truth_labels.append([{
-                'label': entity['entity'],
-                'start': entity['start'],
-                'end': entity['end']
-            } for entity in sent_ground_truth])
-        else:
-            ground_truth_labels.append([])
-
-        if sent_predicted:
-            predicted_labels.append([{
-                'label': entity['entity'],
-                'start': entity['start'],
-                'end': entity['end']
-            } for entity in sent_predicted])
-        else:
-            predicted_labels.append([])
-
-    # Create an Evaluator object with all entity types
-    tags = ['B-LOC', 'I-LOC', 'B-MISC', 'I-MISC', 'B-ORG', 'I-ORG', 'B-PER', 'I-PER']
-    evaluator = Evaluator(ground_truth_labels, predicted_labels, tags=tags)
-
-    # Calculate evaluation metrics
-    results, results_by_tag = evaluator.evaluate()
-    return results, results_by_tag
-
-
-def calculate_entity_similarity(predicted_entities, ground_truth_entities):
-
-    """
-    Calculate the cosine similarity between the frequency vectors of entities extracted from predicted and ground truth data.
-
-    This function first extracts the 'word' element from each entity in the predicted and ground truth entity lists. It then counts the occurrences of each unique word in both lists and constructs vectors from these counts. The cosine similarity between these two vectors is computed to measure how similar the entities are in terms of their content, regardless of their order or exact match.
-
-    Args:
-        predicted_entities (list of dict): A list of dictionaries where each dictionary represents an entity with at least the key 'word'.
-        ground_truth_entities (list of dict): A list of dictionaries similar to `predicted_entities`, representing the ground truth for comparison.
-
-    Returns:
-        float: The cosine similarity between the frequency vectors of the predicted and ground truth entities.
-
-    Example:
-        predicted_entities = [
-            {'entity': 'B-ORG', 'score': 0.6054342, 'index': 31, 'word': 'Revenge', 'start': 123, 'end': 130},
-            {'entity': 'B-MISC', 'score': 0.50727797, 'index': 85, 'word': 'San', 'start': 362, 'end': 365}
-        ]
-        ground_truth_entities = [
-            {'entity': 'B-ORG', 'score': 1.0, 'index': 31, 'word': 'Revenge', 'start': 123, 'end': 130},
-            {'entity': 'B-MISC', 'score': 1.0, 'index': 85, 'word': 'Francisco', 'start': 362, 'end': 371}
-        ]
-        similarity = calculate_entity_similarity(predicted_entities, ground_truth_entities)
-        print(f"Entity similarity: {similarity:.2f}")
-    """
-    # Extract words from predicted and ground truth entities
-    predicted_words = [entity['word'] for entity in predicted_entities]
-    ground_truth_words = [entity['word'] for entity in ground_truth_entities]
+    # Loop through each file in the directory
+    for file_name in os.listdir(folder_path):
+        if file_name.endswith('.json'):
+            file_path = os.path.join(folder_path, file_name)
+            # Open and load the JSON file
+            with open(file_path, 'r') as file:
+                content = json.load(file)
+            # Append the file name and its content to the list
+            data.append({'file_name': file_name, 'NER': content})
     
-    # Count occurrences of words in predicted and ground truth entities
-    predicted_counts = Counter(predicted_words)
-    ground_truth_counts = Counter(ground_truth_words)
+    # Convert the list of dictionaries to a DataFrame
+    df = pd.DataFrame(data)
     
-    # Create a list of all unique words present in either predicted or ground truth entities
-    all_words = list(set(predicted_words + ground_truth_words))
-    
-    # Create vectors based on the counts of words
-    predicted_vector = np.array([predicted_counts[word] for word in all_words])
-    ground_truth_vector = np.array([ground_truth_counts[word] for word in all_words])
-    
-    # Compute cosine similarity between the vectors
-    similarity = cosine_similarity([predicted_vector], [ground_truth_vector])[0][0]
-    
-    return similarity
+    return df
 
 
 
