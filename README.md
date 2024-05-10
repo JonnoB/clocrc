@@ -19,7 +19,7 @@ This study uses three datasets: the 19th Century Serials Edition (NCSE) and two 
 
 To run the notebooks, you will need the following:
 
-- Python 3.x
+- Python 3.11
 - Jupyter Notebook
 - Required Python packages are found in the requirements.txt file
 
@@ -39,11 +39,8 @@ API key's for the models are required to reproduce this work
 
 ## License
 
-This project is licensed under the [License Name]. See the `LICENSE` file for more information.
+This project is licensed under the MIT. See the `LICENSE` file for more information.
 
-## Contact
-
-For any questions or inquiries, please contact [Your Name] at [your-email@example.com].
 
 ## Abstract
 
@@ -51,4 +48,4 @@ The digitisation of historical print media archives is crucial for increasing ac
 
 ## Citing
 
-[Citation information]
+Citation information not yet available
