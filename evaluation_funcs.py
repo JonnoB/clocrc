@@ -390,6 +390,7 @@ def evaluate_ner_dataset(folder_path, gt_NER):
 
     for folder in os.listdir(dataset_folder):
 
+
         target_folder = os.path.join(dataset_folder, folder)
 
         recovered_NER = load_json_to_dataframe(target_folder)

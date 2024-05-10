@@ -48,6 +48,10 @@ import time
 from collections import deque
 import inspect
 from typing import List, Callable, Optional
+from dotenv import load_dotenv
+load_dotenv()
+REPLICATE_API_TOKEN = os.getenv('REPLICATE_API_TOKEN')
+import replicate 
 
 
 class RateLimiter:
@@ -225,7 +229,8 @@ def use_df_to_call_llm_api(config_dict, df, response_name , folder_path='./data'
 
     """
     # Create new subfolder path
-    new_subfolder = os.path.join(folder_path, f"{response_name}_{config_dict['engine']}")
+    engine_name = config_dict['engine'].split('/')[-1]
+    new_subfolder = os.path.join(folder_path,  f"{response_name}_{engine_name}")
     if not os.path.exists(new_subfolder):
         os.makedirs(new_subfolder)
 
@@ -449,6 +454,53 @@ def get_response_anthropic(prompt, system_message, rate_limiter, engine="claude-
         print("Failed to get model response after multiple attempts.")
     return None
 
+
+def get_response_replicate(prompt, system_message, rate_limiter = None, engine="meta/meta-llama-3-70b-instruct", max_tokens = 4000):
+    """
+    Sends a prompt along with a system-generated message to the Replicate API, managing the rate of requests 
+    with a provided rate limiter. This function maintains compatibility with other API functions by including 
+    the parameters `rate_limiter` and `max_tokens`, even though they are not used within this specific function.
+
+    Parameters:
+        prompt (str): The user's input text to be sent to the model.
+        system_message (str): A system-generated message that precedes the user's prompt.
+        rate_limiter (RateLimiter, optional): An instance of a custom RateLimiter class to manage the frequency of API requests.
+        engine (str, optional): The specific model engine to use. Defaults to "meta/meta-llama-3-70b-instruct".
+        max_tokens (int, optional): The maximum number of tokens to generate. Defaults to 4000.
+
+    Returns:
+        str: The model's response as a single concatenated string, if successful; None otherwise.
+
+    Example:
+        response = get_response_replicate("Hello, world!", "System: Starting session")
+        print(response)
+    """
+
+    client = replicate.client.Client(api_token = REPLICATE_API_TOKEN)
+
+    attempts = 0
+    while attempts < 5:
+        try:
+                
+            response =  client.run(
+                ref =engine,
+                input={
+                    "prompt": prompt,
+                    "system_prompt": system_message,
+                },
+            )
+
+            response = ''.join(list(response))
+            return response
+            
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            # Handle any other unexpected errors
+                
+        attempts += 1
+
+        print("Failed to get model response after multiple attempts.")
+    return None
 
 
 def generate_model_configs(model_configs_df, prompt_template, response_name_prefix):
