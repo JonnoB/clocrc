@@ -14,19 +14,21 @@ python-dotenv
 PyPDF2
 jellyfish
 scikit-learn
+replicate
+bs4 #for processing the sydeny morning heral data from Overproof
 
 ##
 ## For the fine tuning
 ##
 
-transformers
-trl
-accelerate
+#transformers
+#trl
+#accelerate
 #torch #installing torch can cause issues with some of the sub modules relating to audio, which are not necessary for this project
 # tweak as you need to
-bitsandbytes
-peft
-datasets
+#bitsandbytes
+#peft
+#datasets
 nervaluate #for evaluating the NER
 
 #beautifulsoup4 #only needed for dowbnloading the dataset 1 from overproof, which is not really necessary.

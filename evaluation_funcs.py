@@ -30,8 +30,8 @@ def calculate_metrics(file_name, raw_data_string, contents, wer, cer):
     leven_score = jellyfish.levenshtein_distance(raw_data_string, contents)
     
     # Here we prepare for vectorized computation
-    leven_distances = np.array([leven_score])
-    lengths = np.array([max(len(raw_data_string), len(contents))])
+    #leven_distances = np.array([leven_score])
+    #lengths = np.array([max(len(raw_data_string), len(contents))])
     
     #This is not very useful as I can use the error rate reduction
     #lev_sim = vectorized_levenshtein_similarity(leven_distances, lengths)[0]  # Get the first element since we're dealing with single values

@@ -8,9 +8,14 @@ import numpy as np
 import csv
 import json
 import re
+import time
+from openai import OpenAI
 
+import logging
+# Set the logging level for httpx to WARNING to suppress informational messages
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
-
+client = OpenAI()
 ##
 ##
 ## Functions for creating the test/dev/train sets
@@ -422,7 +427,7 @@ def load_json_to_dataframe(folder_path):
 ## For checking if cultural and social knowledge is being used.
 ##
 
-def repeat_prompt_experiment(prompt, check_prompt, client, repititions = 5):
+def repeat_prompt_experiment(prompt, check_prompt, client, repetitions = 5, model = "gpt-4-turbo-preview", auto_check = False, temperature = 0.2):
     """
     Sends the same prompt to the OpenAI API multiple times to assess how the language model uses socio-cultural knowledge.
 
@@ -432,7 +437,7 @@ def repeat_prompt_experiment(prompt, check_prompt, client, repititions = 5):
         prompt (str): The initial prompt to send to the language model.
         check_prompt (str): A format string that incorporates the response into a follow-up prompt for further evaluation.
         client (OpenAI Client): The client instance used to interact with the OpenAI API.
-        repititions (int, optional): The number of times the experiment should repeat. Defaults to 5.
+        repetitions (int, optional): The number of times the experiment should repeat. Defaults to 5.
 
     Returns:
         pd.DataFrame: A DataFrame containing the response, sum of log probabilities, perplexity, and correctness evaluation for each repetition.
@@ -440,7 +445,7 @@ def repeat_prompt_experiment(prompt, check_prompt, client, repititions = 5):
 
     response_list = []
 
-    for i in np.arange(0, repititions):
+    for i in np.arange(0, repetitions):
 
         messages = [
             {"role": "system", "content": ""},
@@ -448,35 +453,80 @@ def repeat_prompt_experiment(prompt, check_prompt, client, repititions = 5):
         ]
 
         response = client.chat.completions.create(
-            model = "gpt-4-turbo-preview",
+            model = model,
             messages = messages,
             max_tokens = 500, 
-            temperature = 0.2,
-            logprobs=True,
-            top_p = 0.9,
+            temperature = temperature,
+            logprobs=True#,
+           # top_p = 0.9,
         )
         #get the log probability for each token
         logprobs = [token.logprob for token in response.choices[0].logprobs.content]
 
         answer = response.choices[0].message.content
-        
-        messages = [
-            {"role": "system", "content": ""},
-            {"role": "user", "content": check_prompt.format(answer=answer)}
-        ]
-        
-        response_check = client.chat.completions.create(
-            model = "gpt-4-turbo-preview",
-            messages = messages,
-            max_tokens = 500, 
-            temperature = 0.2,
-            top_p = 0.9,
-        )
+        is_correct = None
+        if auto_check:
+            messages = [
+                {"role": "system", "content": ""},
+                {"role": "user", "content": check_prompt.format(answer=answer)}
+            ]
+            #The checking model only needs to be gpt-3.5 for speed
+            response_check = client.chat.completions.create(
+                model = "gpt-4-turbo-preview",#'gpt-3.5-turbo',#
+                messages = messages,
+                max_tokens = 500, 
+                temperature = 0.2#,
+            # top_p = 0.9,
+            )
+            is_correct = response_check.choices[0].message.content
 
         response_list.append({
             'response':answer,
             'logprobs':np.sum(logprobs),
             'perplexity':np.exp(-np.mean(logprobs)),
-            'correct':response_check.choices[0].message.content})
+            'correct':is_correct})
         
     return pd.DataFrame(response_list)
+
+def process_jokes_context(df, save_folder, repetitions=100, model="gpt-4-turbo-preview", temperature = 0.2):
+    """
+    Process jokes and their contexts, save results to specified folder.
+
+    Args:
+    df (pd.DataFrame): DataFrame containing jokes, contexts, and prompts.
+    save_folder (str): Path to the folder where results should be saved.
+    repetitions (int): Number of repetitions for the experiment (default is 100).
+    model (str): Model identifier to use (default is 'gpt-3.5-turbo').
+
+    Returns:
+    None. Outputs are saved to files and progress is printed.
+    """
+    # Ensure the save directory exists
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
+        print(f"Created directory: {save_folder}")
+
+    context_results = []
+    for index, row in df.iterrows():
+        save_file = os.path.join(save_folder, row['joke'] + "_" + row['context'] + ".csv")
+        if not os.path.exists(save_file):
+            start_time = time.time()  # Record the start time
+
+            # Assuming 'repeat_prompt_experiment' is defined elsewhere
+            result = repeat_prompt_experiment(row['prompt'], row['check'], client, repetitions=repetitions, model=model, temperature = temperature)
+
+            result['context'] = row['context']
+            result['joke'] = row['joke']
+            result['sentence'] = row['sentence']
+            result['temperature'] = temperature
+
+            context_results.append(result)
+
+            end_time = time.time()  # Record the end time
+            duration = end_time - start_time  # Calculate the duration
+
+            # Save result to CSV and print progress
+            result.to_csv(save_file)
+            print(f"Processed joke: {row['joke']} with context {row['context']} in {duration:.2f} seconds")
+        else:
+            print(f"{os.path.basename(save_file)} already exists, skipping")
