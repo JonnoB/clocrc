@@ -320,7 +320,7 @@ def evaluate_ner_dict(ground_truth, predicted):
     evaluator = Evaluator(ground_truth_labels, predicted_labels, tags=tags)
 
     # Calculate evaluation metrics for the dictionaries
-    results, _ = evaluator.evaluate()
+    results, _, _, _ = evaluator.evaluate() #modified from returning two results, there has been a change in the code I think
     return results['ent_type']['f1']
 
 

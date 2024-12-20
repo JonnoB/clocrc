@@ -15,7 +15,9 @@ PyPDF2
 jellyfish
 scikit-learn
 replicate
+jinja2
 bs4 #for processing the sydeny morning heral data from Overproof
+ipykernal
 
 ##
 ## For the fine tuning
